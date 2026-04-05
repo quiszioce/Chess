@@ -4,9 +4,14 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.Map;
 
+/**
+ * The main UI class for the chess game.
+ * Builds the Swing window, renders the board and pieces, and handles all
+ * player interaction (selecting, moving, highlighting legal moves).
+ */
 public class ChessBoard {
 
-    // Map of piece types to their corresponding Unicode symbols for white and black pieces
+    // Unicode chess symbols keyed by piece type, one map per color
     private static final Map<String, String> WHITE_SYMBOLS = Map.of(
         "King", "♔", "Queen", "♕", "Rook", "♖",
         "Bishop", "♗", "Knight", "♘", "Pawn", "♙"
@@ -16,17 +21,25 @@ public class ChessBoard {
         "Bishop", "♝", "Knight", "♞", "Pawn", "♟"
     );
 
+    // Square background colors: base, selected, and legal-move hints (light/dark variant)
     private static final Color LIGHT_SQUARE = Color.WHITE;
-    private static final Color DARK_SQUARE = Color.BLACK;
-    private static final Color HIGHLIGHT = new Color(186, 202, 68);
+    private static final Color DARK_SQUARE  = Color.BLACK;
+    private static final Color HIGHLIGHT    = new Color(186, 202, 68);  // yellow-green for selected piece
+    private static final Color HINT_LIGHT   = new Color(187, 203, 143); // muted green on light squares
+    private static final Color HINT_DARK    = new Color(100, 111, 64);  // muted green on dark squares
 
     private final BoardState boardState;
-    private final JPanel[][] squares = new JPanel[8][8];
+    private final JPanel[][] squares     = new JPanel[8][8];
+    private final boolean[][] legalMoves = new boolean[8][8];
     private JLabel statusLabel;
     private int selectedRow = -1;
     private int selectedCol = -1;
     private boolean gameOver = false;
 
+    /**
+     * Constructs the chess window, initialises the board state, builds the
+     * 8x8 grid of panels, attaches click listeners, and adds the status bar.
+     */
     public ChessBoard() {
         boardState = new BoardState();
 
@@ -35,6 +48,7 @@ public class ChessBoard {
         frame.setLayout(new BorderLayout());
         frame.setSize(400, 440);
 
+        // Build the 8x8 grid
         JPanel boardPanel = new JPanel(new GridLayout(8, 8));
         for (int row = 0; row < 8; row++) {
             for (int col = 0; col < 8; col++) {
@@ -54,6 +68,7 @@ public class ChessBoard {
             }
         }
 
+        // Status bar: turn label on the left, New Game button on the right
         statusLabel = new JLabel("White's turn", SwingConstants.CENTER);
         statusLabel.setFont(new Font("Serif", Font.BOLD, 16));
 
@@ -71,67 +86,86 @@ public class ChessBoard {
         frame.setVisible(true);
     }
 
+    /**
+     * Resets all game state — board, selection, legal-move highlights, and the
+     * status label — and redraws the full board for a fresh game.
+     */
     private void resetGame() {
         boardState.reset();
         selectedRow = -1;
         selectedCol = -1;
         gameOver = false;
+        clearLegalMoves();
         statusLabel.setText("White's turn");
-        for (int row = 0; row < 8; row++)
-            for (int col = 0; col < 8; col++)
-                refreshSquare(row, col);
+        refreshAllSquares();
     }
 
+    /**
+     * Handles a click on the square at (row, col).
+     *
+     * First click:  selects the piece if it belongs to the current player,
+     *               then highlights all its legal destinations.
+     * Second click: if the destination is legal, moves the piece there and
+     *               advances the turn; if illegal, tries to re-select a new
+     *               friendly piece at the clicked square instead.
+     * Same square:  deselects the currently selected piece.
+     */
     private void handleClick(int row, int col) {
         if (gameOver) return;
 
         if (selectedRow == -1) {
-            // Select a square only if it has a piece belonging to the current player
+            // Select a square only if it holds a piece belonging to the current player
             Piece piece = boardState.getPiece(row, col);
             if (piece != null && piece.getColor().equals(boardState.getCurrentTurn())) {
                 selectedRow = row;
                 selectedCol = col;
-                refreshSquare(row, col);
+                computeLegalMoves(row, col);
+                refreshAllSquares();
             }
         } else {
-            // Clicking the same square deselects
+            // Clicking the selected square again deselects it
             if (row == selectedRow && col == selectedCol) {
-                int prevRow = selectedRow, prevCol = selectedCol;
                 selectedRow = -1;
                 selectedCol = -1;
-                refreshSquare(prevRow, prevCol);
+                clearLegalMoves();
+                refreshAllSquares();
                 return;
             }
 
             if (boardState.isValidMove(selectedRow, selectedCol, row, col)) {
+                // Execute the move
                 boardState.setPiece(row, col, boardState.getPiece(selectedRow, selectedCol));
                 boardState.setPiece(selectedRow, selectedCol, null);
 
-                int prevRow = selectedRow, prevCol = selectedCol;
                 selectedRow = -1;
                 selectedCol = -1;
-                refreshSquare(prevRow, prevCol);
-                refreshSquare(row, col);
+                clearLegalMoves();
+                refreshAllSquares();
 
                 boardState.switchTurn();
                 updateStatus();
             } else {
-                // Invalid move — try selecting a new piece of the same color instead
+                // Invalid destination — clear selection, but re-select if the square
+                // holds another friendly piece
                 Piece clicked = boardState.getPiece(row, col);
-                int prevRow = selectedRow, prevCol = selectedCol;
                 selectedRow = -1;
                 selectedCol = -1;
-                refreshSquare(prevRow, prevCol);
+                clearLegalMoves();
 
                 if (clicked != null && clicked.getColor().equals(boardState.getCurrentTurn())) {
                     selectedRow = row;
                     selectedCol = col;
-                    refreshSquare(row, col);
+                    computeLegalMoves(row, col);
                 }
+                refreshAllSquares();
             }
         }
     }
 
+    /**
+     * Called after every move to evaluate the new game state and update the
+     * status label. Detects checkmate, stalemate, and simple check.
+     */
     private void updateStatus() {
         String turn = boardState.getCurrentTurn();
         boolean inCheck  = boardState.isInCheck(turn);
@@ -152,22 +186,59 @@ public class ChessBoard {
         }
     }
 
-    private String capitalize(String s) {
-        return s.substring(0, 1).toUpperCase() + s.substring(1);
+    /**
+     * Populates the legalMoves grid for the piece at (fromRow, fromCol) by
+     * testing every board square as a potential destination.
+     * Called whenever a piece is selected so the hints can be rendered.
+     */
+    private void computeLegalMoves(int fromRow, int fromCol) {
+        for (int r = 0; r < 8; r++)
+            for (int c = 0; c < 8; c++)
+                legalMoves[r][c] = boardState.isValidMove(fromRow, fromCol, r, c);
     }
 
+    /**
+     * Resets all entries in the legalMoves grid to false.
+     * Called on deselect, after a move completes, or on new game.
+     */
+    private void clearLegalMoves() {
+        for (int r = 0; r < 8; r++)
+            for (int c = 0; c < 8; c++)
+                legalMoves[r][c] = false;
+    }
+
+    /**
+     * Redraws every square on the board. Called whenever the selection or
+     * board state changes so the entire view stays consistent.
+     */
+    private void refreshAllSquares() {
+        for (int r = 0; r < 8; r++)
+            for (int c = 0; c < 8; c++)
+                refreshSquare(r, c);
+    }
+
+    /**
+     * Redraws a single square at (row, col): sets its background color based
+     * on whether it is selected, a legal-move hint, or a plain square,
+     * then renders the piece symbol (if any) as a centered label.
+     */
     private void refreshSquare(int row, int col) {
         JPanel panel = squares[row][col];
         panel.removeAll();
 
         boolean isSelected = (row == selectedRow && col == selectedCol);
+        boolean isLight    = (row + col) % 2 == 0;
+
         if (isSelected) {
             panel.setBackground(HIGHLIGHT);
+        } else if (legalMoves[row][col]) {
+            // Use the shade that matches the underlying square color
+            panel.setBackground(isLight ? HINT_LIGHT : HINT_DARK);
         } else {
-            panel.setBackground((row + col) % 2 == 0 ? LIGHT_SQUARE : DARK_SQUARE);
+            panel.setBackground(isLight ? LIGHT_SQUARE : DARK_SQUARE);
         }
 
-        // Get the piece at the current position and add its symbol to the panel
+        // Render the piece as a Unicode symbol if the square is occupied
         Piece piece = boardState.getPiece(row, col);
         if (piece != null) {
             String symbol = piece.getColor().equals("white")
@@ -181,6 +252,14 @@ public class ChessBoard {
 
         panel.revalidate();
         panel.repaint();
+    }
+
+    /**
+     * Returns the given string with its first character uppercased.
+     * Used to format color names ("white" → "White") in the status label.
+     */
+    private String capitalize(String s) {
+        return s.substring(0, 1).toUpperCase() + s.substring(1);
     }
 
     public static void main(String[] args) {

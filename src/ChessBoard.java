@@ -196,6 +196,7 @@ public class ChessBoard {
                 selectedRow = -1;
                 selectedCol = -1;
                 clearLegalMoves();
+                handlePromotion(row, col); // promote before redraw if applicable
                 refreshAllSquares();
 
                 boardState.switchTurn();
@@ -374,6 +375,52 @@ public class ChessBoard {
         };
         label.setFont(new Font("Serif", Font.PLAIN, 44));
         return label;
+    }
+
+    /**
+     * Checks whether the piece at (row, col) is a pawn that has reached the
+     * opposite back rank. If so, shows a dialog letting the player choose a
+     * promotion piece (Queen, Rook, Bishop, or Knight) and replaces it.
+     * Defaults to Queen if the dialog is dismissed without a selection.
+     */
+    private void handlePromotion(int row, int col) {
+        Piece piece = boardState.getPiece(row, col);
+        if (!(piece instanceof Pawn)) return;
+
+        boolean isWhite = piece.getColor().equals("white");
+        if (isWhite && row != 0) return;
+        if (!isWhite && row != 7) return;
+
+        String color = piece.getColor();
+        Map<String, String> symbols = isWhite ? WHITE_SYMBOLS : BLACK_SYMBOLS;
+
+        // Build labelled buttons using the Unicode piece symbols
+        String[] options = {
+            symbols.get("Queen")  + "  Queen",
+            symbols.get("Rook")   + "  Rook",
+            symbols.get("Bishop") + "  Bishop",
+            symbols.get("Knight") + "  Knight"
+        };
+
+        int choice = JOptionPane.showOptionDialog(
+            null,
+            "Choose a piece to promote to:",
+            "Pawn Promotion",
+            JOptionPane.DEFAULT_OPTION,
+            JOptionPane.PLAIN_MESSAGE,
+            null,
+            options,
+            options[0]
+        );
+
+        Piece promoted = switch (choice) {
+            case 1  -> new Rook(color);
+            case 2  -> new Bishop(color);
+            case 3  -> new Knight(color);
+            default -> new Queen(color); // includes case 0 and dialog-closed (-1)
+        };
+
+        boardState.setPiece(row, col, promoted);
     }
 
     /**

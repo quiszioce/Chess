@@ -48,12 +48,43 @@ public class BoardState {
     }
 
     /**
+     * Moves the piece from (fromRow, fromCol) to (toRow, toCol), marks it as moved,
+     * and handles the rook half of a castling move automatically.
+     * All move execution in ChessBoard should go through this method.
+     */
+    public void movePiece(int fromRow, int fromCol, int toRow, int toCol) {
+        Piece piece = board[fromRow][fromCol];
+        board[toRow][toCol]     = piece;
+        board[fromRow][fromCol] = null;
+        piece.setMoved();
+
+        // If this is a castling move, also relocate the rook
+        if (piece instanceof King && fromRow == toRow && Math.abs(toCol - fromCol) == 2) {
+            boolean kingSide  = toCol > fromCol;
+            int rookFromCol   = kingSide ? 7 : 0;
+            int rookToCol     = kingSide ? toCol - 1 : toCol + 1;
+            Piece rook        = board[fromRow][rookFromCol];
+            board[fromRow][rookToCol]   = rook;
+            board[fromRow][rookFromCol] = null;
+            rook.setMoved();
+        }
+    }
+
+    /**
      * Returns true if moving the piece from (fromRow, fromCol) to (toRow, toCol)
      * is fully legal — the piece can physically make the move AND the move does
      * not leave the moving player's own king in check.
+     * For castling, additionally ensures the king does not start in or pass through check.
      */
     public boolean isValidMove(int fromRow, int fromCol, int toRow, int toCol) {
         if (!isRawValidMove(fromRow, fromCol, toRow, toCol)) return false;
+
+        // Castling has extra safety requirements beyond moveLeavesKingInCheck
+        Piece piece = board[fromRow][fromCol];
+        if (piece instanceof King && fromRow == toRow && Math.abs(toCol - fromCol) == 2) {
+            return isCastlingSafe(fromRow, fromCol, toCol);
+        }
+
         return !moveLeavesKingInCheck(fromRow, fromCol, toRow, toCol);
     }
 
@@ -121,6 +152,7 @@ public class BoardState {
     /**
      * Validates a move based on shared rules (not null, not same square, not
      * capturing own piece) then delegates to the piece's own isValidMove().
+     * Castling is handled as a special case before delegating.
      * Does not account for king safety — used internally to avoid infinite recursion.
      */
     private boolean isRawValidMove(int fromRow, int fromCol, int toRow, int toCol) {
@@ -132,7 +164,52 @@ public class BoardState {
         Piece target = board[toRow][toCol];
         if (target != null && target.getColor().equals(piece.getColor())) return false;
 
+        // Castling: king moves exactly 2 squares horizontally
+        if (piece instanceof King && fromRow == toRow && Math.abs(toCol - fromCol) == 2) {
+            return isCastlingStructurallyValid(fromRow, fromCol, toCol);
+        }
+
         return piece.isValidMove(fromRow, fromCol, toRow, toCol, board);
+    }
+
+    /**
+     * Checks the structural requirements for castling:
+     * neither the king nor the chosen rook has moved, and
+     * all squares between them are empty.
+     */
+    private boolean isCastlingStructurallyValid(int row, int kingCol, int toCol) {
+        Piece king = board[row][kingCol];
+        if (king.hasMoved()) return false;
+
+        int rookCol = (toCol > kingCol) ? 7 : 0;
+        Piece rook  = board[row][rookCol];
+        if (!(rook instanceof Rook) || rook.hasMoved()) return false;
+
+        // All squares between king and rook must be empty
+        int step = Integer.signum(rookCol - kingCol);
+        for (int c = kingCol + step; c != rookCol; c += step)
+            if (board[row][c] != null) return false;
+
+        return true;
+    }
+
+    /**
+     * Checks the safety requirements for castling:
+     * the king must not currently be in check, must not pass through
+     * an attacked square, and must not land on an attacked square.
+     */
+    private boolean isCastlingSafe(int row, int kingCol, int toCol) {
+        String color = board[row][kingCol].getColor();
+
+        // King cannot castle while in check
+        if (isInCheck(color)) return false;
+
+        // King cannot pass through a square under attack
+        int step = Integer.signum(toCol - kingCol);
+        if (moveLeavesKingInCheck(row, kingCol, row, kingCol + step)) return false;
+
+        // King cannot land on a square under attack
+        return !moveLeavesKingInCheck(row, kingCol, row, toCol);
     }
 
     /**

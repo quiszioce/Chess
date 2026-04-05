@@ -5,6 +5,7 @@
  */
 public abstract class Piece {
     private String color;
+    private boolean hasMoved = false;
 
     /**
      * @param color the owning player's color — "white" or "black"
@@ -31,6 +32,16 @@ public abstract class Piece {
     /** Sets the piece color. */
     public void setColor(String color) {
         this.color = color;
+    }
+
+    /** Returns true if this piece has moved at least once this game. */
+    public boolean hasMoved() {
+        return hasMoved;
+    }
+
+    /** Marks this piece as having moved. Called by BoardState.movePiece(). */
+    public void setMoved() {
+        hasMoved = true;
     }
 
     /**

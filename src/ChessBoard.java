@@ -189,9 +189,8 @@ public class ChessBoard {
             }
 
             if (boardState.isValidMove(selectedRow, selectedCol, row, col)) {
-                // Execute the move
-                boardState.setPiece(row, col, boardState.getPiece(selectedRow, selectedCol));
-                boardState.setPiece(selectedRow, selectedCol, null);
+                // Execute the move (movePiece also handles the rook for castling)
+                boardState.movePiece(selectedRow, selectedCol, row, col);
 
                 selectedRow = -1;
                 selectedCol = -1;

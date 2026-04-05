@@ -1,6 +1,7 @@
 /**
  * Holds the current state of the chess board, including piece positions,
- * whose turn it is, and all move validation logic.
+ * whose turn it is, and move validation / game-state detection logic.
+ * Per-piece movement rules live in each Piece subclass.
  */
 public class BoardState {
     private Piece[][] board;
@@ -118,9 +119,9 @@ public class BoardState {
     }
 
     /**
-     * Validates a move based solely on how the piece moves — does not account
-     * for whether the move leaves the king in check. Used internally by isValidMove
-     * and isInCheck (to avoid infinite recursion).
+     * Validates a move based on shared rules (not null, not same square, not
+     * capturing own piece) then delegates to the piece's own isValidMove().
+     * Does not account for king safety — used internally to avoid infinite recursion.
      */
     private boolean isRawValidMove(int fromRow, int fromCol, int toRow, int toCol) {
         Piece piece = board[fromRow][fromCol];
@@ -131,98 +132,7 @@ public class BoardState {
         Piece target = board[toRow][toCol];
         if (target != null && target.getColor().equals(piece.getColor())) return false;
 
-        return switch (piece.getType()) {
-            case "Pawn"   -> isValidPawnMove(fromRow, fromCol, toRow, toCol, piece.getColor());
-            case "Rook"   -> isValidRookMove(fromRow, fromCol, toRow, toCol);
-            case "Knight" -> isValidKnightMove(fromRow, fromCol, toRow, toCol);
-            case "Bishop" -> isValidBishopMove(fromRow, fromCol, toRow, toCol);
-            case "Queen"  -> isValidRookMove(fromRow, fromCol, toRow, toCol)
-                          || isValidBishopMove(fromRow, fromCol, toRow, toCol);
-            case "King"   -> isValidKingMove(fromRow, fromCol, toRow, toCol);
-            default       -> false;
-        };
-    }
-
-    /**
-     * Validates pawn movement rules:
-     * - One step forward into an empty square.
-     * - Two steps forward from the starting row if both squares ahead are empty.
-     * - One step diagonally forward only when capturing an opponent's piece.
-     * Direction is upward (row decreases) for white and downward for black.
-     */
-    private boolean isValidPawnMove(int fromRow, int fromCol, int toRow, int toCol, String color) {
-        int direction = color.equals("white") ? -1 : 1;
-        int startRow  = color.equals("white") ? 6 : 1;
-
-        // One step forward into an empty square
-        if (toCol == fromCol && toRow == fromRow + direction && board[toRow][toCol] == null)
-            return true;
-
-        // Two steps forward from the starting row, both intermediate and target squares must be empty
-        if (toCol == fromCol && fromRow == startRow
-                && toRow == fromRow + 2 * direction
-                && board[fromRow + direction][fromCol] == null
-                && board[toRow][toCol] == null)
-            return true;
-
-        // Diagonal capture — only valid if there is an opponent piece on that square
-        if (Math.abs(toCol - fromCol) == 1 && toRow == fromRow + direction
-                && board[toRow][toCol] != null)
-            return true;
-
-        return false;
-    }
-
-    /**
-     * Validates rook movement: must move in a straight line (same row or same column)
-     * with no pieces blocking the path.
-     */
-    private boolean isValidRookMove(int fromRow, int fromCol, int toRow, int toCol) {
-        if (fromRow != toRow && fromCol != toCol) return false;
-        return isPathClear(fromRow, fromCol, toRow, toCol);
-    }
-
-    /**
-     * Validates knight movement: must move in an L-shape (2 squares in one axis,
-     * 1 square in the other). Knights can jump over other pieces.
-     */
-    private boolean isValidKnightMove(int fromRow, int fromCol, int toRow, int toCol) {
-        int dr = Math.abs(toRow - fromRow);
-        int dc = Math.abs(toCol - fromCol);
-        return (dr == 2 && dc == 1) || (dr == 1 && dc == 2);
-    }
-
-    /**
-     * Validates bishop movement: must move diagonally (equal row and column distance)
-     * with no pieces blocking the path.
-     */
-    private boolean isValidBishopMove(int fromRow, int fromCol, int toRow, int toCol) {
-        if (Math.abs(toRow - fromRow) != Math.abs(toCol - fromCol)) return false;
-        return isPathClear(fromRow, fromCol, toRow, toCol);
-    }
-
-    /**
-     * Validates king movement: can move exactly one square in any direction.
-     */
-    private boolean isValidKingMove(int fromRow, int fromCol, int toRow, int toCol) {
-        return Math.abs(toRow - fromRow) <= 1 && Math.abs(toCol - fromCol) <= 1;
-    }
-
-    /**
-     * Returns true if every square between the two positions (exclusive) is empty.
-     * Works for straight lines (rook) and diagonals (bishop) by using step signs.
-     */
-    private boolean isPathClear(int fromRow, int fromCol, int toRow, int toCol) {
-        int rowStep = Integer.signum(toRow - fromRow);
-        int colStep = Integer.signum(toCol - fromCol);
-        int r = fromRow + rowStep;
-        int c = fromCol + colStep;
-        while (r != toRow || c != toCol) {
-            if (board[r][c] != null) return false;
-            r += rowStep;
-            c += colStep;
-        }
-        return true;
+        return piece.isValidMove(fromRow, fromCol, toRow, toCol, board);
     }
 
     /**
@@ -250,16 +160,31 @@ public class BoardState {
     }
 
     /**
-     * Places all 32 pieces in their standard chess starting positions.
+     * Places all 32 pieces in their standard chess starting positions
+     * using the correct subclass for each piece type.
      * Rows 0-1 are black, rows 6-7 are white.
      */
     private void initializeBoard() {
-        String[] backRank = {"Rook", "Knight", "Bishop", "Queen", "King", "Bishop", "Knight", "Rook"};
         for (int col = 0; col < 8; col++) {
-            board[0][col] = new Piece(backRank[col], "black");
-            board[1][col] = new Piece("Pawn", "black");
-            board[6][col] = new Piece("Pawn", "white");
-            board[7][col] = new Piece(backRank[col], "white");
+            board[0][col] = createBackRankPiece(col, "black");
+            board[1][col] = new Pawn("black");
+            board[6][col] = new Pawn("white");
+            board[7][col] = createBackRankPiece(col, "white");
         }
+    }
+
+    /**
+     * Returns the correct back-rank piece for the given column and color.
+     * Column order: Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook.
+     */
+    private Piece createBackRankPiece(int col, String color) {
+        return switch (col) {
+            case 0, 7 -> new Rook(color);
+            case 1, 6 -> new Knight(color);
+            case 2, 5 -> new Bishop(color);
+            case 3    -> new Queen(color);
+            case 4    -> new King(color);
+            default   -> throw new IllegalArgumentException("Invalid column: " + col);
+        };
     }
 }

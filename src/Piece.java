@@ -1,39 +1,53 @@
 /**
- * Represents a single chess piece with a type (e.g. "King", "Pawn")
- * and a color ("white" or "black").
+ * Abstract base class for all chess pieces.
+ * Each subclass represents a specific piece type and implements its own
+ * movement rules via isValidMove().
  */
-public class Piece {
-    private String type;
+public abstract class Piece {
     private String color;
 
     /**
-     * Creates a new piece with the given type and color.
-     *
-     * @param type  the kind of piece — "King", "Queen", "Rook", "Bishop", "Knight", or "Pawn"
      * @param color the owning player's color — "white" or "black"
      */
-    public Piece(String type, String color) {
-        this.type = type;
+    public Piece(String color) {
         this.color = color;
     }
 
-    /** Returns the piece type (e.g. "Rook"). */
-    public String getType() {
-        return type;
-    }
+    /** Returns the piece type name (e.g. "Rook"). Defined by each subclass. */
+    public abstract String getType();
+
+    /**
+     * Returns true if this piece can move from (fromRow, fromCol) to (toRow, toCol)
+     * based solely on how this piece moves — does not account for king safety.
+     * The board is passed in so pieces can check whether squares are empty or occupied.
+     */
+    public abstract boolean isValidMove(int fromRow, int fromCol, int toRow, int toCol, Piece[][] board);
 
     /** Returns the piece color ("white" or "black"). */
     public String getColor() {
         return color;
     }
 
-    /** Sets the piece type. */
-    public void setType(String type) {
-        this.type = type;
-    }
-
     /** Sets the piece color. */
     public void setColor(String color) {
         this.color = color;
+    }
+
+    /**
+     * Returns true if every square between the two positions (exclusive) is empty.
+     * Works for straight lines (rook) and diagonals (bishop) by deriving step direction
+     * from the sign of the row/column difference.
+     */
+    protected boolean isPathClear(int fromRow, int fromCol, int toRow, int toCol, Piece[][] board) {
+        int rowStep = Integer.signum(toRow - fromRow);
+        int colStep = Integer.signum(toCol - fromCol);
+        int r = fromRow + rowStep;
+        int c = fromCol + colStep;
+        while (r != toRow || c != toCol) {
+            if (board[r][c] != null) return false;
+            r += rowStep;
+            c += colStep;
+        }
+        return true;
     }
 }

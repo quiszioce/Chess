@@ -48,7 +48,7 @@ public class ChessBoard {
     public ChessBoard() {
         boardState = new BoardState();
 
-        JFrame frame = new JFrame("Chess");
+        JFrame frame = new JFrame("Alex's Chess Game");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setLayout(new BorderLayout());
         frame.getContentPane().setBackground(BORDER_COLOR);
